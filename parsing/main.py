@@ -1,8 +1,9 @@
 import os
+import matplotlib.pyplot as plt
+import pandas as pd
 
 from charts.draw_charts import draw_weekly_weight_kcals, \
     draw_weekly_and_quarterly_lift_charts
-import pandas as pd
 
 
 path = os.environ['ECLIPSE_WORKSPACE']
@@ -16,8 +17,11 @@ def open_stats():
 if __name__ == '__main__':
     df_sheets = open_stats()
     
-    # draw_weekly_weight_kcals(df_sheets['Weekly Calendar summary'])
     # draw_weekly_lifts(df_sheets['Weekly Calendar summary'])
+    draw_weekly_weight_kcals(df_sheets['Weekly Calendar summary'])
     draw_weekly_and_quarterly_lift_charts(df_sheets['Weekly Calendar summary'])
+    
+    plt.show()
+
     
     print('end')
