@@ -1,3 +1,4 @@
 eclipse.preferences.version=1
-encoding//charts/draw_charts.py=UTF-8
+encoding//charts/draw_descriptive_charts.py=UTF-8
+encoding//charts/draw_statistical_charts.py=UTF-8
 encoding//utils/utils.py=UTF-8

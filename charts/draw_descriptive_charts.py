@@ -111,62 +111,191 @@ def label_line_points_smart(
         # else: skip label (collision both ways)
 
 def draw_weekly_weight_kcals(df):
-    # get colors from palette
-    bar_color = EXTENDED_PALETTE[0]
+    # --------------------------
+    # COLORS (same hue, different intensity)
+    # --------------------------
+    resting_color = EXTENDED_PALETTE[0]        # darkest
+    active_color = EXTENDED_PALETTE[0]          # same hue, lighter via alpha
+    neutral_color = "#9e9e9e"                   # neutral grey for surplus/deficit
+
     line_color = EXTENDED_PALETTE[1]
     line_movingavg_color = line_color
 
-    # clean data / manipulate data
-    df = df.dropna(subset=["kcals daily avg"])
-    # --- calculate 4-week rolling average of weight ---
-    df["Weight_rolling4"] = df["Weight avg kg"].rolling(window=4, min_periods=1).mean()
-    # --- calculate 4-week rolling average of kcals ---
-    df["kcals_rolling4"] = df["kcals daily avg"].rolling(window=4, min_periods=1).mean()
- 
+    # --------------------------
+    # CLEAN & TRANSFORM DATA
+    # --------------------------
+    df = df.dropna(subset=[
+        "kcals daily avg",
+        "Resting energy kcal",
+        "Active energy kcal",
+        "Weight avg kg"
+    ])
+
+    # convert resting & active to thousands (kcal → thousands kcal)
+    df["Resting_k"] = df["Resting energy kcal"] / 1000
+    df["Active_k"] = df["Active energy kcal"] / 1000
+
+    # surplus / deficit (can be negative)
+    df["Energy_surplus_k"] = df["kcals daily avg"] - (df["Resting_k"] + df["Active_k"])
+
+    # rolling averages
+    df["Weight_rolling4"] = df["Weight avg kg"].rolling(4, min_periods=1).mean()
+    df["kcals_rolling4"] = df["kcals daily avg"].rolling(4, min_periods=1).mean()
+
+    # --------------------------
+    # FIGURE / AXES
+    # --------------------------
     fig, ax1 = plt.subplots(figsize=(12, 5))
-    ax2 = ax1.twinx() # for double axis
-    
-    x = df["Yearweek"].astype(str) # to make sure we plot axis labels and show the bars/lines not empty
-    
-    bars = ax1.bar(x, df["kcals daily avg"], label="kcals daily avg", color=bar_color, alpha=0.85)
-    ax1.plot(x, df["kcals_rolling4"], color=bar_color, linestyle="-", marker=None, label="kcals 4-wk MA")
-    ax2.plot(x, df["Weight avg kg"], marker="o", color=line_color, label="Weight avg kg")
-    ax2.plot(x, df["Weight_rolling4"], color=line_movingavg_color, linestyle="--", marker=None, label="Weight 4-wk MA")
-    
-    # bar labels
-    ax1.bar_label(
-        bars,
-        color=bar_color,
-        labels=[f"{v:,.2f}" for v in df["kcals daily avg"]],
-        padding=3,
-        fontsize=8
+    ax2 = ax1.twinx()
+
+    x = df["Yearweek"].astype(str)
+
+    # --------------------------
+    # STACKED BARS
+    # --------------------------
+    bottom_pos = np.zeros(len(df))
+    bottom_neg = np.zeros(len(df))
+
+    # Resting (always positive)
+    bars_rest = ax1.bar(
+        x,
+        df["Resting_k"],
+        bottom=bottom_pos,
+        label="Resting energy kcal",
+        color=resting_color,
+        alpha=0.9
     )
+    bottom_pos += df["Resting_k"]
+
+    # Active (always positive, lighter)
+    bars_active = ax1.bar(
+        x,
+        df["Active_k"],
+        bottom=bottom_pos,
+        label="Active energy kcal",
+        color=active_color,
+        alpha=0.55
+    )
+    bottom_pos += df["Active_k"]
+
+    # Surplus / deficit (neutral color, can be negative)
+    surplus_pos = df["Energy_surplus_k"].clip(lower=0)
+    surplus_neg = df["Energy_surplus_k"].clip(upper=0)
+
+    bars_surplus_pos = ax1.bar(
+        x,
+        surplus_pos,
+        bottom=bottom_pos,
+        label="Surplus / deficit kcal",
+        color=neutral_color,
+        alpha=0.8
+    )
+
+    bars_surplus_neg = ax1.bar(
+        x,
+        surplus_neg,
+        bottom=bottom_neg,
+        color=neutral_color,
+        alpha=0.8
+    )
+
+    # ---------------------------------------
+    # SEGMENT LABELS (inside stacks + on top)
+    # --------------------------------------
+    def label_segments(ax, bars, values, totals, min_frac=0.06):
+        for bar, val, total in zip(bars, values, totals):
+            if total > 0 and abs(val) / total >= min_frac:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{val:.1f}",
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    color="white"
+                )
+    def label_totals_on_top(ax, x, totals, y_offset_frac=0.015, fontsize=7):
+        y_min, y_max = ax.get_ylim()
+        y_offset = (y_max - y_min) * y_offset_frac
     
-    # line labels with collision avoidance
-    label_line_points_smart(
-        fig=fig,
-        ax_line=ax2,
-        ax_bar=ax1,
-        x_values=x,
-        line_values=df["Weight avg kg"],
-        bars=bars,
-        fmt="{:.1f}",
+        for xi, total in zip(x, totals):
+            ax.text(
+                xi,
+                total + y_offset,
+                f"{total:.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=fontsize,
+                color="grey"
+            )            
+
+    
+    totals_k = df["kcals daily avg"]
+
+    label_segments(ax1, bars_rest, df["Resting_k"], totals_k)
+    label_segments(ax1, bars_active, df["Active_k"], totals_k)
+    label_segments(ax1, bars_surplus_pos, surplus_pos, totals_k)
+
+    # --------------------------
+    # KCALS MOVING AVERAGE
+    # --------------------------
+    ax1.plot(
+        x,
+        df["kcals_rolling4"],
+        color=resting_color,
+        linewidth=1.3,
+        label="kcals 4-wk MA"
+    )
+
+    # --------------------------
+    # WEIGHT LINES (SECOND AXIS)
+    # --------------------------
+    ax2.plot(
+        x,
+        df["Weight avg kg"],
+        marker="o",
         color=line_color,
-        fontsize=8,
-        min_pixel_distance=12
+        label="Weight avg kg"
     )
+
+    ax2.plot(
+        x,
+        df["Weight_rolling4"],
+        linestyle="--",
+        color=line_movingavg_color,
+        label="Weight 4-wk MA"
+    )
+
+    # --------------------------
+    # Y-LIMITS (CORRECT FOR STACKED + NEGATIVE)
+    # --------------------------
+    max_stack = (df["Resting_k"] + df["Active_k"] + surplus_pos).max()
+    min_stack = surplus_neg.min()
+
+    ax1.set_ylim(min_stack * 1.2, max_stack * 1.15)
+    ax1.margins(y=0.05)
     
-    ax1.set_ylabel("Daily avg kcals")
+    # --------------------------
+    # TOTAL LABELS ON TOP
+    # --------------------------
+    total_stack = df["Resting_k"] + df["Active_k"] + surplus_pos
+    label_totals_on_top(ax1, x, total_stack)
+
+    # --------------------------
+    # AXES & LAYOUT
+    # --------------------------
+    ax1.set_ylabel("Daily energy kcal")
     ax2.set_ylabel("Weight avg kg")
-    
-    # rotate x-ticks on the bar axis
-    ax1.tick_params(axis='x', rotation=45, labelsize=8)
-    
+
+    ax1.tick_params(axis="x", rotation=45, labelsize=8)
     ax1.grid(axis="y", alpha=0.2)
-    ax1.set_title(f"Average Weight kg and average weekly kcals")
+
+    ax1.set_title("Daily Energy Breakdown (Resting / Active / Surplus) vs Weight")
+
+    ax1.legend(loc="upper left", fontsize=8)
+    ax2.legend(loc="upper right", fontsize=8)
 
     plt.tight_layout()
-
 
 # --------------------------
 # Helper 1: Prepare totals
@@ -180,7 +309,7 @@ def prepare_totals(df, muscle_groups, freq="W"):
     if freq == "Q":
         # Assume df has Yearweek in ISO week format: convert to datetime first
         df_copy["Date"] = df_copy["Yearweek"].apply(lambda yw: pd.to_datetime(f"{str(yw)[:4]}-W{int(str(yw)[4:]):02d}-1", format="%G-W%V-%u"))
-        df_copy = df_copy.set_index("Date").resample("Q").sum()
+        df_copy = df_copy.set_index("Date").resample("QE").sum()
         # Quarter label for x-axis
         df_copy["Period"] = df_copy.index.to_period("Q").astype(str)
     else:
@@ -271,21 +400,12 @@ def plot_stacked_bars(df, muscle_groups, palette, title_suffix=""):
     ax2.set_ylim(0, 1.05)
     ax2.margins(y=0.02)
     plt.xticks(rotation=45, size=8)
-    plt.subplots_adjust(top=0.92, bottom=0.12, left=0.08, right=0.95, hspace=0.35)
+    plt.subplots_adjust(top=0.92, bottom=0.12, left=0.02, right=0.98, hspace=0.35)
     
 # --------------------------
 # Main function
 # --------------------------
 def draw_weekly_and_quarterly_lift_charts(df):
-    # --- convert kg to tons ---
-    df["Totals tons"] = df["Totals kg"] / 1000 
-    df["Leg tons"] = df["Leg kg"] / 1000 
-    df["Chest tons"] = df["Chest kg"] / 1000 
-    df["Back tons"] = df["Back kg"] / 1000 
-    df["Shoulders tons"] = df["Shoulders kg"] / 1000 
-    df["Biceps tons"] = df["Biceps kg"] / 1000 
-    df["Core tons"] = df["Core kg"] / 1000 
-    
     # --- Weekly chart ---
     df_weekly = prepare_totals(df, muscle_groups, freq="W")
     plot_stacked_bars(df_weekly, muscle_groups, palette, title_suffix="(Weekly)")
@@ -293,6 +413,3 @@ def draw_weekly_and_quarterly_lift_charts(df):
     # --- Quarterly chart ---
     df_quarterly = prepare_totals(df, muscle_groups, freq="Q")
     plot_stacked_bars(df_quarterly, muscle_groups, palette, title_suffix="(Quarterly)")
-
-def draw_daily(df):
-    pass
